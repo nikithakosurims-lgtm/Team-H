@@ -39,36 +39,316 @@ Open the Streamlit UI at <http://localhost:8501>.
 
 ---
 ## Architecture
-```mermaid
-flowchart TB
-    subgraph FE[Streamlit Front‑end (frontend/app.py)]
-        UI[UI (Uploader + Chat + PDF Viewer)]
-    end
-    subgraph GW[FastAPI (backend/main.py)]
-        Router[/API Router (backend/api/routes.py)/]
-    end
-    subgraph SVC[Backend Services]
-        PDFSrv[PDF Service<br/>pdf_service.py]
-        AISrv[AI Service<br/>ai_service.py]
-        DB[Vector Store (ChromaDB)<br/>get_vectorstore()]
-    end
-    subgraph LLM[Groq LLM (ChatGroq)]
-        LLMModel[(Llama‑3.1‑8B)]
-    end
-    UI -->|POST /upload/| Router
-    Router -->|process_and_store_pdf| PDFSrv
-    PDFSrv -->|store chunks| DB
-    UI -->|POST /chat/| Router
-    Router -->|process_chat| AISrv
-    AISrv -->|retriever| DB
-    AISrv -->|LLM invoke| LLMModel
-    LLMModel -->|summary / answer| AISrv
-    AISrv -->|modify_pdf_with_summary| PDFSrv
-    PDFSrv -->|save updated PDF| UI
-    style FE fill:#f9f9f9,stroke:#333,stroke-width:2px
-    style GW fill:#e6f7ff,stroke:#0055aa,stroke-width:2px
-    style SVC fill:#fff8e1,stroke:#ff9900,stroke-width:2px
-    style LLM fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+
+## Tech Stack
+
+| Layer | Technology |
+|---------|------------|
+| Frontend | React + Tailwind CSS |
+| Backend | FastAPI (Python) |
+| Vector Database | ChromaDB (Local) |
+| AI Layer | Claude API + OpenAI Embeddings |
+
+---
+
+## Project Structure
+
+### Backend
+
+```text
+backend/
+├── main.py                 # FastAPI app entry point
+├── routes/
+│   ├── chat.py             # Chat endpoints
+│   └── pdf.py              # Upload + edit endpoints
+├── services/
+│   ├── rag.py              # Chunking + retrieval
+│   ├── llm.py              # Claude API calls
+│   ├── pdf_edit.py         # PDF modification logic
+│   └── chroma.py           # ChromaDB integration
+└── db/
+    └── chroma.py
+```
+
+### Frontend
+
+```text
+frontend/src/
+├── components/
+│   ├── ChatBox.jsx
+│   ├── PDFViewer.jsx
+│   ├── Autocomplete.jsx
+│   └── EditPanel.jsx
+├── pages/
+│   └── Dashboard.jsx
+├── hooks/
+│   └── useChat.js
+└── api/
+    └── client.js           # Axios API calls
+```
+
+---
+
+## Core RAG Pipeline
+
+### 1. PDF Upload
+
+```text
+PDF → PyMuPDF → Extract Text
+```
+
+### 2. Chunking
+
+```text
+Chunk Size: 500 tokens
+Overlap: 50 tokens
+```
+
+### 3. Embedding & Storage
+
+```text
+Chunks
+   ↓
+text-embedding-3-small
+   ↓
+ChromaDB
+```
+
+### 4. Retrieval
+
+```text
+User Query
+   ↓
+Embedding
+   ↓
+Top-5 Similar Chunks
+```
+
+### 5. Answer Generation
+
+```text
+Retrieved Context
+   +
+User Question
+   ↓
+Claude API
+   ↓
+Answer + Page Citations
+```
+
+### 6. Streaming Response
+
+```text
+Backend (SSE)
+   ↓
+React UI
+```
+
+---
+
+## Autocomplete Engine
+
+### Workflow
+
+1. User types in chat input.
+2. Frontend debounces requests (300 ms).
+3. Request sent to:
+
+```http
+GET /autocomplete
+```
+
+4. Backend:
+   - Embeds partial query
+   - Searches similar chunks
+   - Extracts relevant question patterns
+
+5. Claude generates:
+
+```text
+3 context-aware question suggestions
+```
+
+6. Suggestions displayed in UI.
+
+---
+
+## PDF Editing Engine
+
+### Flow
+
+```text
+User Command
+    ↓
+Claude Function Calling
+    ↓
+Intent Detection
+    ↓
+Edit Action
+    ↓
+PyMuPDF + ReportLab
+    ↓
+Updated PDF Download
+```
+
+### Example
+
+```text
+"Summarize Section 3 and insert as Page 1"
+```
+
+Process:
+
+```text
+Section Retrieval
+    ↓
+Claude Summary
+    ↓
+ReportLab Creates New Page
+    ↓
+PyMuPDF Merges Pages
+    ↓
+Updated PDF Returned
+```
+
+---
+
+## API Endpoints
+
+### Upload PDF
+
+```http
+POST /upload
+```
+
+**Responsibilities**
+- Accept PDF
+- Extract text using PyMuPDF
+- Chunk content
+- Generate embeddings
+- Store in ChromaDB
+
+**Response**
+
+```json
+{
+  "doc_id": "12345"
+}
+```
+
+---
+
+### Chat
+
+```http
+POST /chat
+```
+
+**Request**
+
+```json
+{
+  "doc_id": "12345",
+  "message": "Summarize section 2"
+}
+```
+
+**Flow**
+
+```text
+Question
+   ↓
+Embedding
+   ↓
+Retrieve Top-5 Chunks
+   ↓
+Claude
+   ↓
+Streaming Response
+```
+
+---
+
+### Autocomplete
+
+```http
+GET /autocomplete
+```
+
+**Query Params**
+
+```text
+doc_id
+partial
+```
+
+**Target Latency**
+
+```text
+< 200ms
+```
+
+---
+
+### Edit PDF
+
+```http
+POST /edit
+```
+
+**Request**
+
+```json
+{
+  "doc_id": "12345",
+  "command": "Summarize section 3 and insert at page 1"
+}
+```
+
+**Response**
+
+```text
+Updated PDF File
+```
+
+---
+
+## Development Roadmap
+
+| Hour | Deliverable |
+|--------|------------|
+| Hour 1 | PDF Upload + RAG Pipeline |
+| Hour 2 | Chat UI + Streaming |
+| Hour 3 | Autocomplete Endpoint |
+| Hour 4 | PDF Editing + Export |
+| Hour 5 | Page Citations + UI Polish |
+| Hour 6 | Demo Preparation + Sample PDFs |
+
+---
+
+## End-to-End Flow
+
+```text
+Upload PDF
+    ↓
+Extract Text (PyMuPDF)
+    ↓
+Chunk Content
+    ↓
+Generate Embeddings
+    ↓
+Store in ChromaDB
+    ↓
+User Question
+    ↓
+Retrieve Top-5 Chunks
+    ↓
+Claude Generates Answer
+    ↓
+Stream Response to React UI
+    ↓
+(Optional)
+Edit PDF & Export Updated Version
 ```
 ---
 ## API Endpoints
